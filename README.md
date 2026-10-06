@@ -2,16 +2,9 @@
 
 Static authoring-time audit tooling for [ITSMBench](https://github.com/new-measure/ITSMBench) tasks.
 
-ITSMBench evaluates how well AI agents perform realistic IT service-management work. Each task
-places an agent in a containerised enterprise environment, gives it a ticket-style instruction,
-and evaluates the resulting environment using a hidden verifier. The benchmark currently contains
-tasks spanning areas such as incident management, access management, offboarding, and security
-response.
+ITSMBench evaluates how well AI agents perform realistic IT service-management work. Each task places an agent in a containerised enterprise environment, gives it a ticket-style instruction, and evaluates the resulting environment using a hidden verifier. The benchmark spans areas such as incident management, access management, offboarding, and security response.
 
-**ITSMBench Audit** provides a static preflight layer for task authors. It analyses an ITSMBench
-task before it is used in a benchmark run and checks whether the task package is structurally
-healthy, what its verifier actually evaluates, and whether the documented task requirements appear
-to correspond to the verifier''s assertions.
+ITSMBench Audit is a preflight tool for task authors. Before a task is used in a benchmark run, it checks whether the task package is structurally sound, what the verifier actually tests, and whether the documented requirements line up with what the verifier enforces.
 
 > **Task authoring → `itsmbench-audit` → review findings → fix → benchmark run**
 
@@ -19,19 +12,9 @@ to correspond to the verifier''s assertions.
 
 ## Why this exists
 
-A benchmark task can look correct while still containing problems in its evaluation layer. For
-example:
+A task can look correct while hiding real problems in its evaluation layer. A required file might be missing. The verifier might test things that are never mentioned in the task description. A documented requirement might have no corresponding verifier check. The verifier might be too complex to reason about statically. An assertion might confirm a final state without proving that the agent actually performed the expected action.
 
-- a required task file may be missing;
-- a verifier may contain assertions that are not reflected in the task documentation;
-- a documented requirement may not appear to have corresponding verifier coverage;
-- a verifier may be too complex for static analysis to fully understand;
-- an assertion may only establish a final state rather than proving that a particular action occurred;
-- a task may contain ambiguous or weak documentation-to-verifier mappings.
-
-These issues are particularly important for agent benchmarks because the verifier defines what
-ultimately counts as success. ITSMBench Audit is designed to surface these cases **before benchmark
-execution**.
+These problems matter because the verifier is what ultimately decides whether an agent succeeded. ITSMBench Audit surfaces them before benchmark execution.
 
 ---
 
@@ -39,23 +22,15 @@ execution**.
 
 ### 1. Package health
 
-Checks the basic structure of an ITSMBench task, including expected task files, directories, and
-references between local files. The goal is a simple question:
-
-> **Can this task plausibly be executed and evaluated as an ITSMBench task?**
+Verifies the basic structure of an ITSMBench task: expected files, directories, and references between local files. The check is straightforward — can this task be plausibly executed and evaluated as written?
 
 ---
 
 ### 2. Verifier inventory
 
-Identifies verifier tests and attempts to extract their semantic assertions. Supported verifier
-sources include:
+Reads the verifier and tries to extract what each test is actually asserting. Supported sources are Python test files, JavaScript test files, and JSON-based assertion files.
 
-- Python test files
-- JavaScript test files
-- JSON-based assertion files
-
-The analyser extracts information such as:
+For each assertion, the analyser tries to extract structured information:
 
 | Field | Description |
 |---|---|
@@ -71,35 +46,23 @@ The analyser extracts information such as:
 | `scope` | The boundary within which the assertion applies |
 | `provenance` | Where the assertion originates |
 
-For Python verifiers, the analyser uses static AST-based inspection and bounded helper analysis
-rather than executing the verifier. For JavaScript, it recognises common assertion idioms such as
-`assert`, `expect(...).toBe(...)`, `toEqual(...)`, `toContain(...)`, and related forms. JSON
-assertions are normalised into the same internal representation where their semantics can be
-determined.
+Python verifiers are analysed using static AST inspection and bounded helper analysis — the verifier is never executed. For JavaScript, the analyser recognises common assertion idioms: `assert`, `expect(...).toBe(...)`, `toEqual(...)`, `toContain(...)`, and related forms. JSON assertions are normalised into the same internal representation.
 
 ---
 
-### 3. Documentation + verifier consistency
+### 3. Documentation and verifier consistency
 
-ITSMBench tasks contain natural-language requirements describing what the agent is expected to
-accomplish. ITSMBench Audit compares those requirements against the semantics extracted from the
-verifier. It checks both directions:
+ITSMBench tasks describe what the agent should do in natural language. The audit compares those descriptions against the semantics extracted from the verifier, running the comparison in both directions.
 
-**Documentation -> verifier**
-> Does the task appear to verify the requirements it tells the agent to perform?
+First, it checks whether the verifier actually tests what the task description says to do. Then it checks the other way: whether the verifier enforces things that are never mentioned in the description.
 
-**Verifier -> documentation**
-> Does the verifier appear to enforce requirements that are not documented?
-
-The matching system is deliberately conservative. A weak semantic relationship is reported for
-review rather than silently being treated as a successful match.
+The matching is conservative. A weak or ambiguous relationship is flagged for review rather than silently counted as a pass.
 
 ---
 
 ## Static analysis, not execution
 
-ITSMBench Audit does **not** execute an agent, task environment, or verifier. It is an
-authoring-time static analysis tool. The intended workflow is:
+ITSMBench Audit never runs an agent, task environment, or verifier. It reads source files only.
 
 ```mermaid
 flowchart TD
@@ -123,9 +86,6 @@ flowchart TD
     F --> B
 ```
 
-It is therefore complementary to the benchmark itself rather than a replacement for benchmark
-execution.
-
 ---
 
 ## Installation
@@ -139,7 +99,7 @@ pip install itsmbench-audit
 Or install the repository locally:
 
 ```sh
-git clone <repository-url>
+git clone https://github.com/souro26/ITSMBench-Audit
 cd itsmbench-audit
 pip install .
 ```
@@ -178,51 +138,39 @@ python -m itsmbench_audit /path/to/ITSMBench/tasks/task-a-1
 itsmbench-audit --all /path/to/ITSMBench/tasks
 ```
 
-For example:
-
-```sh
-itsmbench-audit --all C:\Users\User\projects\ITSMBench\tasks
-```
-
-The corpus mode audits every task and produces aggregate statistics across the corpus.
+The corpus mode audits every task and prints aggregate statistics across the full set.
 
 ---
 
 ## Understanding the output
 
-The tool distinguishes between different levels of confidence.
-
 ### `EXTRACTED`
 
-The verifier semantics were statically extracted with sufficient confidence.
+The verifier semantics were statically extracted with enough confidence to be useful.
 
 ```text
 [CHECK:EXTRACTED] test_account_suspended  action=suspend  entity=user  state=suspended
 ```
 
-This is the strongest extraction status.
+This is the strongest result the analyser produces.
 
 ---
 
 ### `PARTIAL`
 
-The analyser understood part of the assertion but could not establish the complete semantics.
-For example, a verifier may call a helper whose return value can only be partially resolved
-statically.
+The analyser understood part of the assertion but not all of it. This often happens when a verifier delegates logic to a helper function whose return value cannot be fully resolved from the source.
 
 ```text
 [CHECK:PARTIAL] test_service_configuration ...  reason=helper predicate partially resolved
 ```
 
-`PARTIAL` does not mean that the verifier is wrong. It means the static analyser does not have
-enough information to make a complete claim.
+`PARTIAL` does not mean the verifier is broken. It means there was not enough static information to complete the extraction.
 
 ---
 
 ### `UNEXTRACTED`
 
-A verifier was detected, but its assertion semantics could not be statically extracted. This
-should generally be reviewed manually.
+A verifier test was found, but the assertion semantics could not be extracted at all. These should be reviewed manually.
 
 ```text
 [CHECK:UNEXTRACTED] test_complex_workflow  reason=assertion semantics could not be statically extracted
@@ -232,23 +180,19 @@ should generally be reviewed manually.
 
 ### `UNMAPPED`
 
-The verifier semantics were extracted, but the analyser could not find a sufficiently strong
-corresponding documented requirement.
+The verifier semantics were extracted, but no documented requirement matched strongly enough. This is a documentation gap finding, not necessarily a verifier defect.
 
 ```text
 [REVIEW] verifier assertion has no documented requirement
 ```
 
-This is a documentation/verifier coverage finding rather than necessarily a verifier defect.
-
 ---
 
 ### `WEAK`
 
-A documentation/verifier relationship exists, but the semantic relationship is not strong enough
-to classify as a definitive match. Weak mappings are intentionally reported for review.
+A relationship between a documented requirement and a verifier assertion was found, but the match is not strong enough to count as confirmed. These are reported so authors can decide whether the relationship is intentional.
 
-For example, related actions such as:
+Some action pairs that trigger weak matches:
 
 ```text
 remove  <->  revoke
@@ -256,78 +200,41 @@ delete  <->  remove
 suspend <->  deactivate
 ```
 
-may be semantically related in some enterprise workflows without being interchangeable in every
-task. The tool therefore avoids treating weak equivalence as definitive proof of coverage.
+These might be equivalent in one task context and meaningfully different in another. The tool does not make that call for you.
 
 ---
 
-### Important distinction: actions vs. states
+### Actions versus states
 
-The audit intentionally distinguishes an explicit **action** from a resulting **state**.
+The audit distinguishes between what an agent did and what state resulted from it.
 
-For example:
+`account.status == "ACTIVE"` tells you the account is active. It does not prove the agent ran a `restore` operation. `account.status == "DEPROVISIONED"` tells you the account was deprovisioned, but not which operation produced that result or whether it was the right one.
 
-```python
-account.status == "ACTIVE"
-```
-
-does not necessarily prove that the agent performed a `restore` operation.
-
-Likewise:
-
-```python
-account.status == "DEPROVISIONED"
-```
-
-establishes the resulting state but does not necessarily prove which operation produced it.
-
-This distinction is important for benchmark evaluation because a verifier should not receive
-additional semantic meaning merely because a final state happens to resemble an action.
+A verifier that only checks final state is weaker evidence than one that confirms the specific action was taken. The audit surfaces that distinction.
 
 ---
 
 ## What the tool does not do
 
-ITSMBench Audit is intentionally limited in scope. It is **not**:
+ITSMBench Audit reads task source files and reports what it finds. It does not evaluate agents, execute verifiers, judge output quality, or replace any part of the benchmark runtime. It is not an LLM judge, a security scanner, or a symbolic execution engine.
 
-- an agent evaluator;
-- a runtime monitoring system;
-- a replacement for Harbor;
-- a replacement for ITSMBench''s task verifiers;
-- an LLM judge;
-- a benchmark quality score;
-- a general-purpose natural-language parser;
-- a security scanner;
-- a full Python or JavaScript symbolic execution engine.
-
-The tool provides static evidence and review findings. It does not attempt to prove that a task is
-universally correct.
+It produces static evidence. Whether that evidence is sufficient is a judgement for the task author.
 
 ---
 
 ## Conservative by design
 
-False positives and false certainty are particularly undesirable in benchmark tooling. For that
-reason, the analyser prefers `unknown` or `review required` over inventing semantics that cannot
-be established from the source.
+The analyser is intentionally cautious. When semantics cannot be established from the source, it reports that clearly rather than guessing.
 
-In particular:
+Concretely: test function names are treated as weak hints, not proof. Final states are not automatically read as actions. Similar-sounding actions are not assumed to be equivalent. Ambiguous control flow stays ambiguous. Unresolved helper logic stays unresolved. A `PARTIAL` result is reported as partial, not rounded up to `EXTRACTED`.
 
-- test names are secondary evidence rather than primary proof;
-- final states are not automatically interpreted as actions;
-- weak action equivalences are not treated as exact matches;
-- ambiguous control-flow paths are marked as ambiguous;
-- unresolved helper logic is surfaced rather than guessed;
-- partial static extraction remains visibly partial.
-
-The goal is not to produce the smallest possible warning count. The goal is to make the
-analyser''s reasoning inspectable.
+The output is meant to be inspectable, not optimistic.
 
 ---
 
 ## Design
 
-The analyser uses an intermediate representation for verifier assertions.
+Each verifier source — Python AST, JavaScript assertions, JSON — is parsed into a common intermediate representation. That IR is then compared against the requirement IR derived from the task description.
 
 ```mermaid
 flowchart TD
@@ -347,7 +254,7 @@ flowchart TD
     COV --> RPT
 ```
 
-A verifier assertion can carry information including:
+Each assertion in the IR can carry:
 
 | Field | Description |
 |---|---|
@@ -367,18 +274,13 @@ A verifier assertion can carry information including:
 | `raw_evidence` | The original source fragment |
 | `extraction_status` | `EXTRACTED`, `PARTIAL`, or `UNEXTRACTED` |
 
-This common representation allows different verifier formats to be analysed using the same
-downstream coverage logic.
+Using a common IR means the same coverage logic applies to all verifier formats.
 
 ---
 
 ## Relationship to ITSMBench
 
-[ITSMBench](https://github.com/new-measure/ITSMBench) evaluates AI agents on IT
-service-management tasks in realistic, containerised enterprise environments. Tasks provide agent
-instructions and are evaluated using hidden verifiers that inspect the resulting environment state.
-
-ITSMBench Audit operates one step earlier in that lifecycle:
+[ITSMBench](https://github.com/new-measure/ITSMBench) runs AI agents on IT service-management tasks in containerised environments and evaluates them using hidden verifiers. ITSMBench Audit sits one step earlier, during task authoring, before the benchmark is run.
 
 ```mermaid
 flowchart TD
@@ -396,39 +298,24 @@ flowchart TD
     RUN --> EVAL
 ```
 
-The original benchmark supports both remote Daytona execution and local Docker execution, making
-local task development and debugging part of its workflow. ITSMBench Audit is intended to
-complement that development workflow by catching static authoring issues before an actual
-benchmark run.
+The benchmark supports both remote Daytona execution and local Docker execution. ITSMBench Audit fits into the local development part of that workflow, before anything is actually run.
 
 ---
 
 ## Limitations
 
-Static analysis cannot perfectly recover arbitrary program semantics. In particular, complex
-verifier logic may involve:
+Some verifier logic cannot be recovered statically. This includes dynamic dispatch, complex control flow, deeply nested helpers, external API calls, dynamically constructed data, and logic that only becomes clear at runtime.
 
-- dynamic dispatch;
-- complex control flow;
-- deeply nested helper functions;
-- external API calls;
-- dynamically constructed data;
-- semantics that only become apparent during execution.
+When the analyser hits these cases it reports `PARTIAL` or `UNEXTRACTED`. That is the correct output. Surfacing uncertainty is more useful than producing a confident-sounding result that is not actually grounded in the source.
 
-In these cases the tool may report `PARTIAL` or `UNEXTRACTED`. This is intentional. A static
-preflight tool should expose uncertainty rather than present an unsupported interpretation as fact.
-
-The audit also does not establish that a verifier is correct merely because its assertions are
-documented. Documentation/verifier alignment is only one part of benchmark quality.
+Passing the audit also does not mean the verifier is correct. It means the documentation and verifier appear consistent to a static analyser. That is one signal among several when assessing task quality.
 
 ---
 
 ## Development
 
-Clone the repository and install it in editable mode:
-
 ```sh
-git clone <repository-url>
+git clone https://github.com/souro26/ITSMBench-Audit
 cd itsmbench-audit
 pip install -e .
 ```
@@ -439,13 +326,13 @@ Run a syntax check:
 python -m py_compile itsmbench_audit/__main__.py
 ```
 
-Run the audit against an ITSMBench task:
+Run the audit against a task:
 
 ```sh
 python -m itsmbench_audit /path/to/ITSMBench/tasks/task-a-1
 ```
 
-Run the complete corpus:
+Run the full corpus:
 
 ```sh
 python -m itsmbench_audit --all /path/to/ITSMBench/tasks
@@ -456,5 +343,4 @@ python -m itsmbench_audit --all /path/to/ITSMBench/tasks
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
-
 
